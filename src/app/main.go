@@ -1,6 +1,7 @@
 package main
 
 import (
+	"app/cache"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -40,6 +41,7 @@ func init() {
 }
 
 func NewRouter() *httprouter.Router {
+
 	router := httprouter.New()
 	router.GET("/books", logRequest(allBooks))
 	router.POST("/books", logRequest(addBook))
@@ -52,6 +54,7 @@ func NewRouter() *httprouter.Router {
 
 func main() {
 	defer session.Close()
+	defer cache.Close()
 	session.SetMode(mgo.Monotonic, true)
 	ensureIndex(session)
 
@@ -171,7 +174,7 @@ func booksByIsbn(w http.ResponseWriter, r *http.Request, params httprouter.Param
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

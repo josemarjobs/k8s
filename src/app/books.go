@@ -1,7 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"log"
+	"strings"
+
+	"app/cache"
 
 	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
@@ -12,14 +18,31 @@ var (
 	ErrBookNotFound      = errors.New("Book not found")
 )
 
-func getAllBooks() ([]Book, error) {
-	s := session.Copy()
-	defer s.Close()
+const (
+	ALL_BOOKS    = "all_books"
+	BOOK_BY_ISBN = "book_by_isbn"
+)
 
-	c := s.DB(DB).C(BOOKS_COLLECTION)
+func getAllBooks() ([]Book, error) {
+	cachedBooks, _ := cache.Get(ALL_BOOKS)
 	var books []Book
-	err := c.Find(bson.M{}).All(&books)
+	err := json.NewDecoder(strings.NewReader(cachedBooks)).Decode(&books)
+	if err != nil {
+		log.Println("Using the database")
+		s := session.Copy()
+		defer s.Close()
+
+		c := s.DB(DB).C(BOOKS_COLLECTION)
+		err = c.Find(bson.M{}).All(&books)
+		updateCache(ALL_BOOKS, books...)
+	}
 	return books, err
+}
+
+func updateCache(key string, books ...Book) {
+	buffer := new(bytes.Buffer)
+	json.NewEncoder(buffer).Encode(books)
+	cache.Set(key, buffer.String())
 }
 
 func saveBook(book *Book) error {
@@ -37,19 +60,26 @@ func saveBook(book *Book) error {
 }
 
 func getBookByIsbn(isbn string) (*Book, error) {
-	s := session.Copy()
-	defer s.Close()
-
-	c := s.DB(DB).C(BOOKS_COLLECTION)
+	cachedBook, _ := cache.Get(BOOK_BY_ISBN)
 	book := new(Book)
-	err := c.Find(bson.M{"isbn": isbn}).One(book)
+	err := json.NewDecoder(strings.NewReader(cachedBook)).Decode(book)
 	if err != nil {
-		return nil, err
+		log.Println("Using the database")
+		s := session.Copy()
+		defer s.Close()
+
+		c := s.DB(DB).C(BOOKS_COLLECTION)
+		err := c.Find(bson.M{"isbn": isbn}).One(book)
+		if err != nil {
+			return nil, err
+		}
+		if book.ISBN == "" {
+			return nil, ErrBookNotFound
+		}
+		updateCache(BOOK_BY_ISBN, *book)
+		return book, nil
 	}
-	if book.ISBN == "" {
-		return nil, ErrBookNotFound
-	}
-	return book, nil
+	return book, err
 }
 
 func updateBook(isbn string, book *Book) error {
