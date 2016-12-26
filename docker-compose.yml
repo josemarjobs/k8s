@@ -6,13 +6,19 @@ services:
     networks:
       - bookstore
 
+  redis:
+    image: redis
+    restart: always
+    networks: 
+      - bookstore
+
   goapp:
-    build:
-      context: .
+    image: josemarjobs/multi-booksapp
     ports:
-      - "3000:3000"
+      - "5000:5000"
     depends_on:
       - mongodb
+      - redis
     restart: always
     networks:
       - bookstore
