@@ -9,6 +9,7 @@ import (
 
 	mgo "gopkg.in/mgo.v2"
 
+	"github.com/fzzy/radix/redis"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -22,15 +23,27 @@ type Book struct {
 	Title   string   `json:"title"`
 	Authors []string `json:"authors"`
 	Price   string   `json:"price"`
+	Cached  bool     `json:"cached"`
 }
 
 var session *mgo.Session
+var redisClient *redis.Client
 var err error
 
 func init() {
+	redisServer := os.Getenv("REDIS_SERVER_URL")
+	if redisServer == "" {
+		redisServer = "redis"
+	}
+	log.Println("Connecting to redis on: " + redisServer + ":6379")
+	redisClient, err = redis.Dial("tcp", redisServer+":6379")
+	if err != nil {
+		panic(err)
+	}
+
 	server := os.Getenv("MONGO_SERVER_URL")
 	if server == "" {
-		server = "localhost"
+		server = "mongodb"
 	}
 	log.Println("Connecting to mongo on: " + server + ":27017")
 	session, err = mgo.Dial(server + ":27017")
@@ -51,6 +64,7 @@ func NewRouter() *httprouter.Router {
 }
 
 func main() {
+	defer redisClient.Close()
 	defer session.Close()
 	session.SetMode(mgo.Monotonic, true)
 	ensureIndex(session)
@@ -59,7 +73,7 @@ func main() {
 	port := os.Getenv("PORT")
 	log.Println(port)
 	if port == "" {
-		port = "3000"
+		port = "5000"
 	}
 	log.Printf("Server running on port :%s\n", port)
 	http.ListenAndServe(":"+port, router)

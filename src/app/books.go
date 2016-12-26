@@ -1,7 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"io"
+
+	"encoding/json"
+	"strings"
 
 	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
@@ -37,17 +44,32 @@ func saveBook(book *Book) error {
 }
 
 func getBookByIsbn(isbn string) (*Book, error) {
-	s := session.Copy()
-	defer s.Close()
-
-	c := s.DB(DB).C(BOOKS_COLLECTION)
 	book := new(Book)
-	err := c.Find(bson.M{"isbn": isbn}).One(book)
-	if err != nil {
-		return nil, err
-	}
-	if book.ISBN == "" {
-		return nil, ErrBookNotFound
+	h := sha256.New()
+	io.WriteString(h, isbn)
+	key := fmt.Sprintf("%x", h.Sum(nil))
+	r := redisClient.Cmd("GET", key)
+	if r.String() == "<nil>" {
+		s := session.Copy()
+		defer s.Close()
+
+		c := s.DB(DB).C(BOOKS_COLLECTION)
+		err := c.Find(bson.M{"isbn": isbn}).One(book)
+		if err != nil {
+			return nil, err
+		}
+		if book.ISBN == "" {
+			return nil, ErrBookNotFound
+		}
+		buf := bytes.Buffer{}
+		json.NewEncoder(&buf).Encode(book)
+		redisClient.Cmd("SETEX", key, 45, buf.String())
+	} else {
+		err := json.NewDecoder(strings.NewReader(r.String())).Decode(book)
+		if err != nil {
+			return nil, err
+		}
+		book.Cached = true
 	}
 	return book, nil
 }
