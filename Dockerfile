@@ -8,4 +8,4 @@ EXPOSE      $PORT
 RUN         mkdir -p /var/server
 ADD        ./dist/app /var/server
 WORKDIR     /var/server
-entrypoint  ./app
+ENTRYPOINT ./app
